@@ -1,0 +1,12 @@
+{
+  "name": "pi-review-ext",
+  "version": "1.0.0",
+  "description": "Adds /review command for code review",
+  "main": "review.ts",
+  "keywords": ["pi", "extension", "review", "git", "command"],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  }
+}
