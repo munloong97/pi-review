@@ -1,4 +1,4 @@
-# pi-review-ext
+# pi-review
 
 A Pi extension that adds a `/review` command for reviewing code changes.
 
