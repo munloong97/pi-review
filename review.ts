@@ -1,16 +1,16 @@
 /**
- * Review Extension - Improved
+ * Review Extension (fixed for beta-2)
  *
  * Usage:
  * - `/review` - review uncommitted changes
  * - `/review --staged` - review staged (cached) changes
- * - `/review <commit-sha>` - review a specific commit
- * - `/review <branch-a>..<branch-b>` - compare branches
- * - `/review <pr-url>` - review GitHub PR diff
  * - `/review --help` - show usage help
+ *
+ * Note: Extensions can't run shell commands. Instead, read files and let the LLM review.
  */
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import { execSync } from "child_process";
 
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("review", {
@@ -24,41 +24,34 @@ export default function (pi: ExtensionAPI) {
           return showHelp(pi);
         }
 
-        // No input: review uncommitted changes
+        let diff = "";
+        let context = "";
+
+        // Get diff based on input
         if (!input) {
-          await pi.runCommand("git diff");
+          // Uncommitted changes
+          diff = execSync("git diff", { encoding: "utf-8", cwd: ctx.projectRoot });
+          context = "Review the following uncommitted code changes:";
         }
-        // Staged changes
         else if (input === "--staged" || input === "--cached") {
-          await pi.runCommand("git diff --staged");
+          diff = execSync("git diff --staged", { encoding: "utf-8", cwd: ctx.projectRoot });
+          context = "Review the following staged changes:";
         }
-        // PR URL
-        else if (input.startsWith("http")) {
-          const prNumber = extractPRNumber(input);
-          if (prNumber) {
-            await pi.runCommand(`gh pr diff ${prNumber}`);
-          } else {
-            pi.sendUserMessage(`⚠️ Could not extract PR number from: ${input}`);
-            showHelp(pi);
-          }
-        }
-        // Commit SHA (7-40 hex chars)
-        else if (isValidCommitSHA(input)) {
-          await pi.runCommand(`git show ${input}`);
-        }
-        // Branch comparison (contains ..)
-        else if (input.includes("..")) {
-          await pi.runCommand(`git diff ${input}`);
-        }
-        // Branch name (single branch)
-        else if (isValidBranchName(input)) {
-          await pi.runCommand(`git diff ${input}...HEAD`);
-        }
-        // Unknown input
         else {
           pi.sendUserMessage(`⚠️ Unknown input: "${input}"`);
-          showHelp(pi);
+          return showHelp(pi);
         }
+
+        if (!diff.trim()) {
+          pi.sendUserMessage("No changes to review.");
+          return;
+        }
+
+        // Send to LLM for review
+        await pi.sendLLMMessage({
+          text: `${context}\n\n\`\`\`diff\n${diff}\n\`\`\`\n\nPlease review this code and provide feedback on:\n- Potential bugs or issues\n- Code quality concerns\n- Security considerations\n- Performance impacts`,
+        });
+
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         pi.sendUserMessage(`❌ Error: ${message}`);
@@ -67,46 +60,11 @@ export default function (pi: ExtensionAPI) {
   });
 }
 
-/**
- * Display help message with usage examples
- */
 function showHelp(pi: ExtensionAPI) {
   pi.sendUserMessage(`**Review Command Usage:**
 \`\`\`
-/review                    Show uncommitted changes
-/review --staged          Show staged changes
-/review --cached          Alias for --staged
-/review <commit-sha>      Show specific commit (e.g., abc1234)
-/review <branch>..<branch> Compare two branches (e.g., main..feature)
-/review <pr-url>          Show GitHub PR diff
-/review --help            Show this help message
+/review                    Review uncommitted changes
+/review --staged          Review staged changes  
+/review --help            Show this help
 \`\`\``);
-}
-
-/**
- * Extract PR number from GitHub URL
- * Supports: https://github.com/owner/repo/pull/123
- */
-function extractPRNumber(url: string): string | undefined {
-  const match = url.match(/\/pull\/(\d+)/);
-  return match?.[1];
-}
-
-/**
- * Validate commit SHA (7-40 hexadecimal characters)
- */
-function isValidCommitSHA(input: string): boolean {
-  return /^[a-f0-9]{7,40}$/i.test(input);
-}
-
-/**
- * Basic validation for branch names
- * Allows: alphanumeric, -, _, ., /
- * Disallows: .., ~, ^, :, \, space, tab
- */
-function isValidBranchName(input: string): boolean {
-  // Basic check - avoid obviously invalid characters
-  if (/[.]{2}|[~^:\s\\]/.test(input)) return false;
-  // Must have at least one non-special character
-  return /[a-zA-Z0-9]/.test(input);
 }
