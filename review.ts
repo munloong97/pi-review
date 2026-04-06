@@ -37,6 +37,25 @@ export default function (pi: ExtensionAPI) {
           diff = execSync("git diff --staged", { encoding: "utf-8", cwd: ctx.projectRoot });
           context = "Review the following staged changes:";
         }
+        else if (input.match(/github\.com\/[^/]+\/[^/]+\/pull\/\d+/)) {
+          // GitHub PR URL
+          const prInfo = parseGitHubPRUrl(input);
+          if (prInfo) {
+            try {
+              diff = execSync(
+                `gh pr diff ${prInfo.number} --repo ${prInfo.owner}/${prInfo.repo}`,
+                { encoding: "utf-8" }
+              );
+              context = `Reviewing PR #${prInfo.number} from ${prInfo.owner}/${prInfo.repo}:`;
+            } catch (err) {
+              pi.sendUserMessage(`❌ Failed to fetch PR diff. Make sure 'gh' CLI is installed and you're authenticated.`);
+              return;
+            }
+          } else {
+            pi.sendUserMessage(`⚠️ Invalid GitHub PR URL: "${input}"`);
+            return showHelp(pi);
+          }
+        }
         else {
           pi.sendUserMessage(`⚠️ Unknown input: "${input}"`);
           return showHelp(pi);
@@ -60,11 +79,25 @@ export default function (pi: ExtensionAPI) {
   });
 }
 
+function parseGitHubPRUrl(url: string): { owner: string; repo: string; number: string } | null {
+  const match = url.match(/github\.com\/([^/]+)\/([^/]+)\/pull\/(\d+)/);
+  if (match) {
+    return { owner: match[1], repo: match[2], number: match[3] };
+  }
+  return null;
+}
+
 function showHelp(pi: ExtensionAPI) {
   pi.sendUserMessage(`**Review Command Usage:**
 \`\`\`
 /review                    Review uncommitted changes
 /review --staged          Review staged changes  
+/review <gh-pr-url>       Review a GitHub PR (requires 'gh' CLI)
 /review --help            Show this help
+\`\`\`
+
+**Examples:**
+\`\`\`
+/review https://github.com/owner/repo/pull/123
 \`\`\``);
 }
